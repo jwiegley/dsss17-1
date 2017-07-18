@@ -82,8 +82,9 @@ Fixpoint insert x l :=
     always yields a list containing [x]."  Make sure QuickChick finds
     a counterexample. *)
 
-(* FILL IN HERE *)
-(** [] *)
+Conjecture insert_contents : forall x l, In x (insert x l).
+
+QuickCheck insert_contents.
 
 (** **** Exercise: 3 stars (insert2)  *)
 (** Write a property that says "inserting a number [x] into a list [l]
@@ -92,8 +93,9 @@ Fixpoint insert x l :=
     using just what we've seen, though it's arguably not the best
     way.) *)
 
-(* FILL IN HERE *)
-(** [] *)
+Conjecture insert_all : forall x l, In x l -> In x (insert x l).
+
+QuickChick insert_all.
 
 (* ################################################################# *)
 (** * Overview *)
