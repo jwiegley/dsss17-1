@@ -220,9 +220,19 @@ Fixpoint mach_interp (C: code) (fuel: nat)
   | O => Timeout
   | S fuel' =>
       match code_at C pc, stk with
-      | Some Ihalt, nil => Terminates st
-      | Some (Iconst n), stk => mach_interp C fuel' (pc + 1) (n :: stk) st
-      (* FILL IN HERE *)
+      | Some Ihalt, nil                  => Terminates st
+      | Some (Iconst n), stk             => mach_interp C fuel' (pc + 1) (n :: stk) st
+      | Some (Ivar x), stk               => mach_interp C fuel' (pc + 1) (st x :: stk) st
+      | Some (Isetvar x), s :: stk       => mach_interp C fuel' (pc + 1) stk (t_update st x s)
+      | Some Iadd, s1 :: s2 :: stk       => mach_interp C fuel' (pc + 1) (s1 + s2 :: stk) st
+      | Some Isub, s1 :: s2 :: stk       => mach_interp C fuel' (pc + 1) (s1 - s2 :: stk) st
+      | Some Imul, s1 :: s2 :: stk       => mach_interp C fuel' (pc + 1) (s1 * s2 :: stk) st
+      | Some (Ibranch_forward ofs), stk  => mach_interp C fuel' (pc + 1 + ofs) stk st
+      | Some (Ibranch_backward ofs), stk => mach_interp C fuel' (pc + 1 - ofs) stk st
+      | Some (Ibeq ofs), s1 :: s2 :: stk => mach_interp C fuel' (pc + if beq_nat s1 s2 then ofs else 1) stk st
+      | Some (Ibne ofs), s1 :: s2 :: stk => mach_interp C fuel' (pc + if negb (beq_nat s1 s2) then ofs else 1) stk st
+      | Some (Ible ofs), s1 :: s2 :: stk => mach_interp C fuel' (pc + if leb s1 s2 then ofs else 1) stk st
+      | Some (Ibgt ofs), s1 :: s2 :: stk => mach_interp C fuel' (pc + if negb (leb s1 s2) then ofs else 1) stk st
       | _, _ => GoesWrong
       end
   end.
@@ -309,6 +319,9 @@ Compute (compile_bexp (BNot (BAnd BTrue BFalse)) true 42).
 Again, see slides for explanations of the generated branch offsets.
 *)
 
+Definition smart_Ibranch_forward (ofs: nat) : code :=
+  if beq_nat ofs 0 then nil else Ibranch_forward(ofs) :: nil.
+
 Fixpoint compile_com (c: com) : code :=
   match c with
   | SKIP =>
@@ -320,10 +333,13 @@ Fixpoint compile_com (c: com) : code :=
   | IFB b THEN ifso ELSE ifnot FI =>
       let code_ifso := compile_com ifso in
       let code_ifnot := compile_com ifnot in
-      compile_bexp b false (length code_ifso + 1)
+      compile_bexp b false (length code_ifso + match code_ifnot with
+                                               | nil => 0
+                                               | _   => 1
+                                               end)
       ++ code_ifso
-      ++ Ibranch_forward (length code_ifnot)
-      :: code_ifnot
+      ++ smart_Ibranch_forward (length code_ifnot)
+      ++ code_ifnot
   | WHILE b DO body END =>
       let code_body := compile_com body in
       let code_test := compile_bexp b false (length code_body + 1) in
@@ -358,7 +374,7 @@ Compute (compile_program (IFB BEq (AId vx) (ANum 1) THEN vx ::= ANum 0 ELSE SKIP
   [IFB ... THEN ... ELSE SKIP FI].  How would you change [compile_com]
   to generate better code?  Hint: ponder the following function. *)
 
-Definition smart_Ibranch_forward (ofs: nat) : code :=
+Fail Definition smart_Ibranch_forward (ofs: nat) : code :=
   if beq_nat ofs 0 then nil else Ibranch_forward(ofs) :: nil.
 
 (** * 3. Semantic preservation *)
@@ -595,27 +611,41 @@ Proof.
 - (* if true *)
   simpl in *.
   set (code1 := compile_com c1) in *.
-  set (codeb := compile_bexp b false (length code1 + 1)) in *.
+  set (codeb := compile_bexp b false _) in *.
   set (code2 := compile_com c2) in *.
-  eapply star_trans. 
-  apply compile_bexp_correct with (b := b) (cond := false) (ofs := length code1 + 1).
-  eauto with codeseq. 
+  eapply star_trans.
+    eapply compile_bexp_correct with (b := b) (cond := false) (ofs := _).
+    eauto with codeseq.
   rewrite H. simpl. rewrite plus_0_r. fold codeb. normalize.
-  eapply star_trans. apply IHceval. eauto with codeseq. 
+  eapply star_trans.
+    apply IHceval.
+    eauto with codeseq.
+  destruct code2; simpl in *.
+    rewrite !plus_0_r.
+    constructor.
   apply star_one. eapply trans_branch_forward. eauto with codeseq. omega.
 
 - (* if false *)
   simpl in *.
   set (code1 := compile_com c1) in *.
-  set (codeb := compile_bexp b false (length code1 + 1)) in *.
+  set (codeb := compile_bexp b false _) in *.
   set (code2 := compile_com c2) in *.
   eapply star_trans. 
-  apply compile_bexp_correct with (b := b) (cond := false) (ofs := length code1 + 1).
-  eauto with codeseq. 
+    eapply compile_bexp_correct with (b := b) (cond := false) (ofs := _).
+    eauto with codeseq. 
   rewrite H. simpl. fold codeb. normalize.
-  replace (pc + length codeb + length code1 + S(length code2))
-     with (pc + length codeb + length code1 + 1 + length code2).
-  apply IHceval. eauto with codeseq. omega. 
+  destruct code2; simpl in *.
+    normalize.
+    rewrite app_nil_r in AT.
+    replace (pc + length codeb + length code1)
+            with ((pc + length codeb + length code1) + 0) at 2 by omega.
+    apply IHceval.
+    inversion AT; subst.
+    eapply codeseq_at_app_right.
+    eapply codeseq_at_app_right.
+    rewrite app_nil_r.
+    assumption.
+  apply IHceval. eauto with codeseq.
 
 - (* while false *)
   simpl in *. 
@@ -664,8 +694,11 @@ Lemma trans_smart_branch_forward:
   star (transition C) (pc, stk, st) (pc + length (smart_Ibranch_forward ofs) + ofs, stk, st).
 Proof.
   unfold smart_Ibranch_forward; intros.
-  (* FILL IN HERE *)
-Admitted.
+  destruct ofs; normalize.
+  - constructor.
+  - apply star_one.
+    econstructor; eauto with codeseq.
+Qed.
 
 (** *** Exercise (3 stars, optional) *)
 (** The manufacturer of our virtual machine offers a cheaper variant
