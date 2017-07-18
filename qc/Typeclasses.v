@@ -150,8 +150,9 @@ Compute (show 42).
 (** **** Exercise: 1 star (showNatBool)  *)
 (** Write a [Show] instance for pairs of a nat and a bool. *)
 
-(* FILL IN HERE *)
-(** [] *)
+Instance showNatBoolPair : Show (nat * bool) := {
+  show x := "(" ++ show (fst x) ++ "," ++ show (snd x) ++ ")"
+}.
 
 (** Now, given the class [Show], we can define functions that use the
     overloaded function [show] like this: *)
@@ -237,8 +238,9 @@ Instance eqNat : Eq nat :=
     checking equality makes perfect sense.  Write an [Eq] instance for
     this type. *)
 
-(* FILL IN HERE *)
-(** [] *)
+Instance eqBoolArrowBool : Eq (bool -> bool) := {
+  eqb f g := (eqb (f true) (f true) && eqb (f false) (f false))%bool
+}.
 
 (* ================================================================= *)
 (** ** Parameterized Instances: New Typeclasses from Old *)
@@ -286,16 +288,78 @@ Instance showList {A : Type} `{Show A} : Show (list A) :=
 (** Write an [Eq] instance for lists and [Show] and [Eq] instances for
     the [option] type constructor. *)
 
-(* FILL IN HERE *)
-(** [] *)
+Fixpoint list_beq {A : Type} (eq_A : A -> A -> bool) (X Y : list A)
+         {struct X} : bool :=
+  match X with
+  | [] => match Y with
+          | [] => true
+          | _ :: _ => false
+          end
+  | x :: x0 =>
+      match Y with
+      | [] => false
+      | x1 :: x2 => eq_A x x1 && list_beq eq_A x0 x2
+      end
+  end.
+
+Lemma list_beq_eq {A} (R : A -> A -> bool) xs ys :
+  (forall x y, R x y = true -> x = y) ->
+  list_beq R xs ys = true -> xs = ys.
+Proof.
+  generalize dependent ys.
+  induction xs; simpl; intros.
+    destruct ys; congruence.
+  destruct ys.
+    discriminate.
+  destruct (R a a0) eqn:Heqe.
+    apply H in Heqe; subst.
+    erewrite IHxs; eauto.
+  discriminate.
+Qed.
+
+Instance eqList {A : Type} `{Eq A} : Eq (list A) := {
+  eqb := list_beq eqb
+}.
+
+Instance eqOption {A : Type} `{Eq A} : Eq (option A) := {
+  eqb x y := match x, y with
+             | Some x, Some y => eqb x y
+             | None, None => true
+             | _, _ => false
+             end
+}.
+
+Instance showOption {A : Type} `{Show A} : Show (option A) := {
+  show x := match x with
+            | Some x => "Some " ++ show x
+            | None   => "None"
+            end
+}.
 
 (** **** Exercise: 3 stars, optional (boolArrowA)  *)
 (** Generalize your solution to the [boolArrowBool] exercise to build
     an equality instance for any type of the form [bool->A], where [A]
     itself is an [Eq] type.  Show that it works for [bool->bool->nat]. *)
 
-(* FILL IN HERE *)
-(** [] *)
+Instance eqBoolArrowA {A : Type} `{Eq A} : Eq (bool -> A) := {
+  eqb f g := (eqb (f true) (g true) && eqb (f false) (g false))%bool
+}.
+
+Lemma eqBoolArrowA_check :
+  forall (f g : bool -> bool -> nat), eqb f g = true -> forall x y, f x y = g x y.
+Proof.
+  intros.
+  apply Nat.eqb_eq.
+  simpl in H.
+  destruct x, y.
+  - destruct (f true  true  =? g _ _) eqn:Heqe; firstorder.
+  - destruct (f true  false =? g _ _) eqn:Heqe; firstorder.
+    rewrite Bool.andb_false_r in H; firstorder.
+  - destruct (f false true  =? g _ _) eqn:Heqe; firstorder.
+    rewrite Bool.andb_false_r in H; firstorder.
+  - destruct (f false false =? g _ _) eqn:Heqe; firstorder.
+    repeat rewrite Bool.andb_false_r in H; firstorder.
+Qed.
 
 (* ================================================================= *)
 (** ** Class Hierarchies *)
@@ -357,14 +421,35 @@ Definition max {A: Type} `{Eq A} `{Ord A} (x y : A) : A :=
 (** **** Exercise: 3 stars (ordMisc)  *)
 (** Define [Ord] instances for options and pairs. *)
 
-(* FILL IN HERE *)
-(** [] *)
+Generalizable Variables B.
+
+Instance pairOrd {A : Type} `{Ord A} `{Ord B} : Ord (A * B) := {
+  le x y := (le (fst x) (fst y) && le (snd x) (snd y))%bool
+}.
+
+Instance optionOrd {A : Type} `{Ord A} : Ord (option A) := {
+  le x y := match x, y with
+            | Some x, Some y => le x y
+            (* jww (2017-07-17): Is this true for our meaning of le? *)
+            | None, Some _ => true
+            | _, _ => false
+            end
+}.
 
 (** **** Exercise: 3 stars (ordList)  *)
 (** For a little more practice, define an [Ord] instance for lists. *)
 
-(* FILL IN HERE *)
-(** [] *)
+Instance listOrd {A : Type} `{Ord A} : Ord (list A) := {
+  le xs ys :=
+    let fix go xs ys :=
+        match xs, ys with
+        | x :: xs, y :: ys => (le x y && go xs ys)%bool
+        (* jww (2017-07-17): Is this true for our meaning of le? *)
+        | nil, _ :: _ => true
+        | _, _ => false
+        end in
+    go xs ys
+}.
 
 (* ################################################################# *)
 (** * How It Works *)
@@ -936,8 +1021,21 @@ Defined.
 (** Give instance declarations showing that, if [P] and [Q] are
     decidable propositions, then so are [~P] and [P\/Q]. *)
 
-(* FILL IN HERE *)
-(** [] *)
+Instance Dec_not {P} `{Dec P} : Dec (~ P).
+Proof.
+  destruct H, dec0; constructor.
+    right; auto.
+  left; auto.
+Qed.
+
+Instance Dec_disjunct {P Q} `{Dec P} `{Dec Q} : Dec (P \/ Q).
+Proof.
+  destruct H, H0, dec0, dec1; constructor.
+  - left; intuition.
+  - left; intuition.
+  - left; intuition.
+  - right; intuition.
+Qed.
 
 (** **** Exercise: 4 stars: (Dec_All)  *)
 (** The following function converts a list into a proposition claiming
@@ -953,8 +1051,16 @@ Fixpoint All {T : Type} (P : T -> Prop) (l : list T) : Prop :=
 (** Create an instance of [Dec] for [All P l], given that [P a] is
     decidable for every [a]. *)
 
-(* FILL IN HERE *)
-(** [] *)
+Instance Dec_All {A P l} `{H : forall a : A, Dec (P a)} : Dec (All P l).
+Proof.
+  induction l; simpl; constructor.
+    left; constructor.
+  destruct IHl, dec0.
+    destruct (H a), dec0.
+      left; intuition.
+    right; intuition.
+  right; intuition.
+Qed.
 
 (** One reason for doing all this is that it makes it easy to move
     back and forth between the boolean and propositional worlds,
