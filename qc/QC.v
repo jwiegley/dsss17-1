@@ -462,16 +462,26 @@ Fixpoint genTreeSized' {A} (sz : nat) (g : G A) : G (Tree A) :=
 (** **** Exercise: 2 stars (genListSized)  *)
 (** Write a sized generator for lists, following [genTreeSized']. *)
 
-(* FILL IN HERE *)
-(** [] *)
+Fixpoint genListSized {A} (sz : nat) (g : G A) : G (list A) :=
+  match sz with
+    | O => ret []
+    | S sz' =>
+        freq [ (1,  ret []) ;
+               (sz, liftM2 cons g (genListSized sz' g))
+             ]
+  end.
 
 (** **** Exercise: 3 stars (genColorOption)  *)
 (** Write a custom generator for values of type [option color].  Make
     it generate [None] about 1/10th of the time, and make it generate
     [Some Red] three times as often as the other colors. *)
 
-(* FILL IN HERE *)
-(** [] *)
+Definition genColorOption : G (option color) :=
+  freq [ (1, ret None)
+       ; (10, freq [ (3, ret (Some Red))
+                   ; (1, ret (Some Green))
+                   ; (1, ret (Some Blue))
+                   ; (1, ret (Some Yellow)) ]) ].
 
 (* ================================================================= *)
 (** ** Checkers *)
@@ -968,7 +978,7 @@ Arguments TNode {A} _ _ _ _.
 Fixpoint tern_mirror {A : Type} (t : TernaryTree A) : TernaryTree A :=
   match t with
     | TLeaf => TLeaf
-    | TNode x l m r => TNode x (tern_mirror r) m (tern_mirror l)
+    | TNode x l m r => TNode x (tern_mirror r) (tern_mirror m) (tern_mirror l)
   end.
 
 (** Finally, here is a function that converts a tree to a list using 
@@ -983,26 +993,58 @@ Definition tern_to_list {A : Type} (t : TernaryTree A) : list A :=
       end in 
   aux t [].
 
+Definition sample_tern := TNode 0 TLeaf TLeaf (TNode 1 TLeaf TLeaf TLeaf).
+Definition sample_tern2 := TNode 0 TLeaf (TNode 1 TLeaf TLeaf TLeaf) TLeaf.
+Compute tern_to_list sample_tern2.
+Compute sample_tern2.
+Compute tern_mirror sample_tern.
+Compute tern_to_list (tern_mirror sample_tern).
+Compute tern_mirror sample_tern2.
+Compute tern_to_list (tern_mirror sample_tern2).
+Compute List.rev (tern_to_list sample_tern2).
+
 (** **** Exercise: 1 star (show_tern_tree)  *)
 (** Write a [Show] instance for Ternary Trees. *)
 
-(* FILL IN HERE *)
-(** [] *)
+Derive Show for TernaryTree.
 
 (** **** Exercise: 2 stars: (gen_tern_tree)  *)
 (** Write a generator for ternary trees. *)
 
-(* FILL IN HERE *)
+Fixpoint genTernTreeSized {A} (sz : nat) (g : G A) : G (TernaryTree A) :=
+  match sz with
+    | O => ret TLeaf
+    | S sz' => oneOf
+                 [ ret TLeaf ;
+                   x <- genTernTreeSized sz' g ;;
+                   y <- genTernTreeSized sz' g ;;
+                   z <- genTernTreeSized sz' g ;;
+                   g' <- g ;;
+                   ret (TNode g' x y z)
+                 ]
+  end.
 
 (** The following line should generate a bunch of nat ternary trees. *)
-(* Sample (@genTernTreeSized nat 3 (choose (0,10))). *)
-(** [] *)
+Sample (@genTernTreeSized nat 3 (choose (0,10))).
 
 (** **** Exercise: 2 stars (shrink_tern_tree)  *)
 (** Write a shrinker for ternary trees. *)
 
-(* FILL IN HERE *)
-(** [] *)
+Fixpoint shrinkTernTreeAux {A} 
+              (s : A -> list A) (t : TernaryTree A)
+            : list (TernaryTree A) :=
+  match t with
+    | TLeaf => []
+    | TNode x l m r =>
+      [l] ++ [m] ++ [r] ++
+      map (fun x' => TNode x' l m r) (s x) ++
+      map (fun l' => TNode x l' m r) (shrinkTernTreeAux s l) ++
+      map (fun m' => TNode x l m' r) (shrinkTernTreeAux s m) ++
+      map (fun r' => TNode x l m r') (shrinkTernTreeAux s r)
+  end.
+
+Instance shrinkTernTree {A} `{Shrink A} : Shrink (TernaryTree A) := 
+  {| shrink x := shrinkTernTreeAux shrink x |}.
 
 (** Converting a ternary tree to a list and reversing it should yield
     the same list as mirroring the tree and then converting it *)
@@ -1013,8 +1055,31 @@ Definition tern_mirror_reverse (t : TernaryTree nat) :=
 (** Using genTernTreeSized and shrinkTernTree find (and fix!) any bugs in
     tern_mirror. *)
 
-(* FILL IN HERE *)
-(** [] *)
+Fixpoint eq_tern_tree (t1 t2 : TernaryTree nat) : bool :=
+  match t1, t2 with
+    | TLeaf, TLeaf => true
+    | TNode x1 l1 m1 r1, TNode x2 l2 m2 r2 =>
+      beq_nat x1 x2
+        && eq_tern_tree l1 l2
+        && eq_tern_tree m1 m2
+        && eq_tern_tree r1 r2
+    | _, _ => false
+  end.
+
+Definition ternMirrorP (t : TernaryTree nat) :=
+  eq_tern_tree (tern_mirror (tern_mirror t)) t.
+
+QuickChick 
+     (forAllShrink 
+        (genTernTreeSized 5 (choose (0,5))) 
+        shrink
+        ternMirrorP).
+
+QuickChick 
+     (forAllShrink 
+        (genTernTreeSized 5 (choose (0,5))) 
+        shrink
+        tern_mirror_reverse).
 
 (* ################################################################# *)
 (** * Putting it all Together *)
@@ -1148,7 +1213,8 @@ Instance genTree {A} `{Gen A} : GenSized (Tree A) :=
 (** Add typeclass instances for [GenSized] and [Shrink] so that you
     can [QuickChick tern_mirror_reverse] directly. *)
 
-(* FILL IN HERE *)
+Instance genTernTree {A} `{Gen A} : GenSized (TernaryTree A) := 
+  {| arbitrarySized n := genTernTreeSized n arbitrary |}.
 
 (* QuickChick tern_mirror_reverse. *)
 (** [] *)
@@ -1437,8 +1503,27 @@ QuickChick insert_spec_sorted.
     achieves a more uniform distribution (preserving uniformity in
     the lengths). *)
 
-(* FILL IN HERE *)
-(** [] *)
+Definition uniform_sorted (x : nat) :=
+  forAllShrink (genSortedList 0 5 5) shrink (insert_spec' x).
+
+QuickChick uniform_sorted.
+
+Fixpoint genSortedList' (low high : nat) (size : nat) : G (list nat) :=
+  match size with
+  | O => returnGen []
+  | S size' =>
+    if high <? low
+    then returnGen []
+    else freq [ (1, returnGen [])
+              ; (size - 1, x  <- choose (low, high) ;;
+                       xs <- genSortedList' x high size' ;;
+                       returnGen (x :: xs)) ]
+  end.
+
+Definition uniform_sorted' (x : nat) :=
+  forAllShrink (genSortedList' 0 5 5) shrink (insert_spec' x).
+
+QuickChick uniform_sorted'.
 
 (* ================================================================= *)
 (** ** Another Precondition: Binary Search Trees *)
