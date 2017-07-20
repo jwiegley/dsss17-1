@@ -339,9 +339,19 @@ Proof.
   remember (G ++ E) as E'.
   generalize dependent G.
   induction H; intros G0 Eq Uniq; subst.
- (* FILL IN HERE *)
- Admitted.
-
+  - constructor; auto.
+  - apply typing_abs with (L := dom (G0 ++ F ++ E) `union` L).
+    intros.
+    rewrite <- app_assoc.
+    apply H0.
+    + fsetdec.
+    + auto.
+    + simpl_env.
+      auto.
+  - econstructor.
+    + apply IHtyping1; auto.
+    + apply IHtyping2; auto.
+Qed.
 
 (** *** Demo [typing_weakening]
 
@@ -416,9 +426,15 @@ Lemma typing_subst_var_case : forall (E F : ctx) u S T (z x : atom),
 Proof.
   intros E F u S T z x H J K.
   simpl.
- (* FILL IN HERE *) Admitted.
-
-
+  destruct (x == z); subst.
+    apply typing_weakening.
+      apply binds_mid_eq in H; auto.
+      now subst.
+    now apply uniq_remove_mid in J.
+  constructor.
+    now apply uniq_remove_mid in J.
+  now apply binds_remove_mid in H.
+Qed.
 
 
 (** *** Exercise [typing_subst]
