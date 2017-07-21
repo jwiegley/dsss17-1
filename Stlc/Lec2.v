@@ -465,7 +465,19 @@ Lemma typing_subst : forall (E F : ctx) e u S T (z : atom),
   typing E u S ->
   typing (F ++ E) ([z ~> u] e) T.
 Proof.
-(* FILL IN HERE *) Admitted.
+  intros.
+  remember (F ++ [(z, S)] ++ E) as FE.
+  generalize dependent F.
+  induction H; intros; subst.
+  - eapply typing_subst_var_case; eauto.
+  - simpl.
+    apply typing_abs with (L:= dom (F ++ [(z, S)] ++ E) `union` L); intros.
+    destruct_notin.
+    specialize (H1 x NotInTac ([(x, T1)] ++ F) eq_refl).
+    rewrite subst_var; eauto.
+    eapply typing_to_lc_exp; eauto.
+  - simpl; eapply typing_app; eauto.
+Qed.
 
 (** *** Exercise [typing_subst_simpl]
 
