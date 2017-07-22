@@ -493,7 +493,10 @@ Lemma typing_subst_simple : forall (E : ctx) e u S T (z : atom),
   typing E u S ->
   typing E ([z ~> u] e) T.
 Proof.
-(* FILL IN HERE *) Admitted.
+  intros E e u S T z H H0.
+  rewrite_env (nil ++ E).
+  eapply typing_subst; eauto.
+Qed.
 
 (*************************************************************************)
 (** * Type soundness *)
@@ -549,10 +552,15 @@ Lemma preservation : forall (E : ctx) e e' T,
   step e e' ->
   typing E e' T.
 Proof.
-  intros E e e' T H.
+  intros ?? e' ? H.
   generalize dependent e'.
-  induction H; intros e' J.
-(* FILL IN HERE *) Admitted.
+  induction H; intros ? J;
+  inversion J; subst; eauto.
+  inversion H; subst.
+  pick fresh x for (fv_exp e0 `union` L).
+  erewrite subst_exp_intro with (x:=x) by fsetdec.
+  eapply typing_subst_simple; eauto.
+Qed.
 
 (*************************************************************************)
 (** ** Progress *)
@@ -614,10 +622,16 @@ Proof.
      [@], we can supply the argument to nil explicitly. *)
   remember (@nil (atom * typ)) as E.
 
-  induction H; subst.
-
-(* FILL IN HERE *) Admitted.
-
+  induction H; subst; auto.
+    left; simpl; auto.
+  right.
+  destruct (IHtyping1 eq_refl H), (IHtyping2 eq_refl H1);
+  [ destruct e1 | destruct e1
+  | destruct H2 | destruct H2 ];
+  simpl in *; try contradiction;
+  eexists; econstructor;
+  try eapply typing_to_lc_exp; eauto.
+Qed.
 
 (*************************************************************************)
 (** * Tactic support *)
@@ -746,13 +760,23 @@ Qed.
 Lemma exists_cofinite : forall E e T,
     typing_e E e T -> typing E e T.
 Proof.
-  (* FILL IN HERE *) Admitted.
+  intros.
+  induction H; auto.
+  - apply typing_abs_exists with (x:=x); auto.
+  - eapply typing_app; eauto.
+Qed.
 
 (** *** Exercise [cofinite_exists] *)
 
 Lemma cofinite_exists : forall G e T,
     typing G e T -> typing_e G e T.
-Proof. (* FILL IN HERE *) Admitted.
+Proof.
+  intros.
+  induction H; auto.
+  - pick fresh x for (dom G `union` fv_exp e `union` L).
+    apply typing_e_abs with (x:=x); auto.
+  - eapply typing_e_app; eauto.
+Qed.
 
 (***********************************************************************)
 (** ** Additional Exercises                                            *)
@@ -767,4 +791,15 @@ Proof. (* FILL IN HERE *) Admitted.
 Lemma fv_in_dom : forall G e T,
     typing G e T -> fv_exp e [<=] dom G.
 Proof.
-  (* FILL IN HERE *) Admitted.
+  intros.
+  induction H; simpl.
+  - apply binds_In in H0; fsetdec.
+  - pick fresh x for (fv_exp e `union` L).
+    destruct_notin.
+    specialize (H0 x NotInTac).
+    simpl in H0.
+    assert (fv_exp e [<=] fv_exp (e ^ x)).
+      apply fv_exp_open_exp_wrt_exp_lower.
+    fsetdec.
+  - fsetdec.
+Qed.
