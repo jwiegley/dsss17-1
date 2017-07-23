@@ -1602,5 +1602,14 @@ Definition insertBST_spec' (low high : nat) (x : nat) (t : Tree nat) :=
 (** Write a generator that produces binary search trees directly, so
     that you run 10000 tests with 0 discards. *)
 
-(* FILL IN HERE *)
-(** [] *)
+Fixpoint gen_bst (low high : nat) (sz : nat) (g : G nat) : G (Tree nat) :=
+  n  <- g ;;
+  ns <- vectorOf n (choose (low, high)) ;;
+  ret (fold_right insertBST' Leaf ns).
+
+Sample (gen_bst 3 7 10 (choose (0,10))).
+
+Definition insertBST_spec'' (low high : nat) (x : nat) :=
+  forAllShrink (gen_bst low high 10 (ret 5)) shrink (insertBST_spec' low high x).
+
+QuickChick insertBST_spec''.
