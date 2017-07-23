@@ -220,15 +220,19 @@ Qed.
     explicitly (by destructing [x == y]) or automatically
     (using [default_simp]).  *)
 
+Ltac swapped := simpl; unfold swap_var; default_simp.
+
 Lemma swap_symmetric : forall t x y,
     swap x y t = swap y x t.
 Proof.
-  (* FILL IN HERE *) Admitted.
+  induction t; swapped.
+Qed.
 
 Lemma swap_involutive : forall t x y,
     swap x y (swap x y t) = t.
 Proof.
-  (* FILL IN HERE *) Admitted.
+  induction t; swapped.
+Qed.
 
 (** *** Challenge exercises: equivariance
 
@@ -245,18 +249,28 @@ Lemma swap_var_equivariance : forall v x y z w,
     swap_var x y (swap_var z w v) =
     swap_var (swap_var x y z) (swap_var x y w) (swap_var x y v).
 Proof.
-  (* FILL IN HERE *) Admitted.
+  swapped.
+Qed.
 
 Lemma swap_equivariance : forall t x y z w,
     swap x y (swap z w t) = swap (swap_var x y z) (swap_var x y w) (swap x y t).
 Proof.
-  (* FILL IN HERE *) Admitted.
+  induction t; simpl; intros.
+  - now rewrite swap_var_equivariance.
+  - now rewrite <- swap_var_equivariance, <- IHt.
+  - now rewrite <- IHt1, <- IHt2.
+Qed.
 
 Lemma notin_fv_nom_equivariance : forall x0 x y t ,
   x0 `notin` fv_nom t ->
   swap_var x y x0  `notin` fv_nom (swap x y t).
 Proof.
-  (* FILL IN HERE *) Admitted.
+  induction t; simpl; intros.
+  - swapped.
+  - apply notin_remove_1 in H.
+    destruct H; subst; fsetdec.
+  - fsetdec.
+Qed.
 
 (* HINT: For a helpful fact about sets of atoms, check AtomSetImpl.union_1 *)
 
@@ -264,9 +278,14 @@ Lemma in_fv_nom_equivariance : forall x y x0 t,
   x0 `in` fv_nom t ->
   swap_var x y x0 `in` fv_nom (swap x y t).
 Proof.
-  (* FILL IN HERE *) Admitted.
-
-
+  induction t; simpl; intros.
+  - swapped; fsetdec.
+  - apply remove_iff in H; destruct H.
+    apply AtomSetImpl.remove_2; auto.
+    swapped.
+  - apply AtomSetImpl.union_1 in H.
+    destruct H; fsetdec.
+Qed.
 
 (*************************************************************)
 (** * An abstract machine for cbn evaluation                 *)
@@ -383,8 +402,8 @@ semantics in the next section.
 Lemma values_are_done : forall D t,
     isVal t = true -> machine_step D (initconf t) = Done _.
 Proof.
-(* FILL IN HERE *) Admitted.
-
+  induction t; auto; discriminate.
+Qed.
 
 (*************************************************************)
 (** * Size based reasoning                                   *)
@@ -422,105 +441,183 @@ Hint Rewrite swap_size_eq.
     recursive. So, we add an extra argument to the function
     that decreases with each recursive call. *)
 
-Fixpoint subst_rec (n:nat) (t:n_exp) (u :n_exp) (x:atom)  : n_exp :=
-  match n with
-  | 0 => t
-  | S m => match t with
-          | n_var y =>
-            if (x == y) then u else t
-          | n_abs y t1 =>
-            if (x == y) then t
-            else
-              (* rename to avoid capture *)
-              let (z,_) :=
-                  atom_fresh (fv_nom u `union` fv_nom t `union` {{x}}) in
-                 n_abs z (subst_rec m (swap y z t1) u x)
-          | n_app t1 t2 =>
-            n_app (subst_rec m t1 u x) (subst_rec m t2 u x)
-          end
-  end.
+(* Note: This version does not use a fuel based definition for a helper, but
+   directly employs the fact that size gives us a well-founded ordering. This
+   does make some later proofs more difficult, so it's doubtful that this is
+   much of an improvement.
 
-(** Our real substitution function uses the size of the size of the term
-    as that extra argument. *)
-Definition subst (u : n_exp) (x:atom) (t:n_exp) :=
-  subst_rec (size t) t u x.
+   We use [Fix] here directly because it allows us to use [Fix_eq] in the
+   proofs that immediately follow. Both [Function] and [Program Fixpoint]
+   generate definitions with too much complexity to allow us to "unroll" the
+   fixed point by a single iteration. *)
 
-(** This next lemma uses course of values induction [lt_wf_ind] to prove that
-    the size of the term [t] is enough "fuel" to completely calculate a
-    substitution. Providing larger numbers produces the same result. *)
-Lemma subst_size : forall n (u : n_exp) (x:atom) (t:n_exp),
-    size t <= n -> subst_rec n t u x = subst_rec (size t) t u x.
-Proof.
-  intro n. eapply (lt_wf_ind n). clear n.
-  intros n IH u x t SZ.
-  destruct t; simpl in *; destruct n; try omega.
-  - default_simp.
-  - default_simp.
-    rewrite <- (swap_size_eq x0 x1).
-    rewrite <- (swap_size_eq x0 x1) in SZ.
-    apply IH. omega. omega.
-  - simpl.
-    rewrite (IH n); try omega.
-    rewrite (IH n); try omega.
-    rewrite (IH (size t1 + size t2)); try omega.
-    rewrite (IH (size t1 + size t2)); try omega.
-    auto.
-Qed.
+Program Definition subst (u :n_exp) (x:atom) : n_exp -> n_exp :=
+  Fix (well_founded_ltof n_exp size)
+      (fun (_ : n_exp) => n_exp)
+      (fun t rec =>
+         match t with
+         | n_var y =>
+           if (x == y) then u else t
+         | n_abs y t1 =>
+           if (x == y) then t
+           else
+             (* rename to avoid capture *)
+             let (z,_) := atom_fresh (fv_nom u `union` fv_nom t
+                                               `union` {{x}}) in
+             n_abs z (rec (swap y z t1) _)
+         | n_app t1 t2 =>
+           n_app (rec t1 _) (rec t2 _)
+         end).
+Next Obligation. unfold ltof; rewrite swap_size_eq; auto. Defined.
+Next Obligation. unfold ltof; simpl; omega. Defined.
+Next Obligation. unfold ltof; simpl; omega. Defined.
 
 (** ** Challenge Exercise [subst]
 
     Use the definitions above to prove the following results about the
     nominal substitution function.  *)
 
-Lemma subst_eq_var : forall u x,
-    subst u x (n_var x) = u.
+(* Note: All these definitions follow a precise form: Proving that the lemma
+   statement is exactly the definition of "one step" of the fixed-point. This
+   is why they have identical proof scripts. *)
+
+Lemma subst_n_var u x y :
+  subst u x (n_var y) = if x == y then u else n_var y.
 Proof.
-  (* FILL IN HERE *) Admitted.
+  unfold subst.
+  rewrite Fix_eq; auto.
+  intros.
+  destruct x0; auto.
+    destruct (x == x0); auto.
+    destruct (atom_fresh _); auto;
+    rewrite !H; auto.
+  rewrite !H; auto.
+Qed.
 
-Lemma subst_neq_var : forall u x y,
-    x <> y ->
-    subst u x (n_var y) = n_var y.
+Lemma subst_n_abs u x y t :
+  subst u x (n_abs y t) =
+    if x == y
+    then n_abs y t
+    else
+      let (z,_) := atom_fresh (fv_nom u `union` fv_nom (n_abs y t)
+                                        `union` {{x}}) in
+      n_abs z (subst u x (swap y z t)).
 Proof.
-  (* FILL IN HERE *) Admitted.
+  unfold subst.
+  rewrite Fix_eq; auto.
+  intros.
+  destruct x0; auto.
+    destruct (x == x0); auto.
+    destruct (atom_fresh _); auto;
+    rewrite !H; auto.
+  rewrite !H; auto.
+Qed.
 
-Lemma subst_app : forall u x t1 t2,
-    subst u x (n_app t1 t2) = n_app (subst u x t1) (subst u x t2).
-Proof. (* FILL IN HERE *) Admitted.
-
-Lemma subst_abs : forall u x y t1,
-    subst u x (n_abs y t1) =
-       if (x == y) then (n_abs y t1)
-       else let (z,_) := atom_fresh (fv_nom u `union` fv_nom (n_abs y t1) `union` {{x}}) in
-       n_abs z (subst u x (swap y z t1)).
-Proof. (* FILL IN HERE *) Admitted.
-
+Lemma subst_n_app u x t1 t2 :
+  subst u x (n_app t1 t2) = n_app (subst u x t1) (subst u x t2).
+Proof.
+  unfold subst.
+  rewrite Fix_eq; auto.
+  intros.
+  destruct x0; auto.
+    destruct (x == x0); auto.
+    destruct (atom_fresh _); auto;
+    rewrite !H; auto.
+  rewrite !H; auto.
+Qed.
 
 (** ** Challenge Exercise [subst properties]
 
     Now show the following property by induction on the size of terms. *)
 
-Lemma subst_same_aux : forall n, forall t y, size t <= n -> aeq (subst (n_var y) y t)  t.
-Proof.
-  intro n. induction n.
-  intros t y SZ. destruct t; simpl in SZ; omega.
-  intros t y SZ. destruct t; simpl in SZ.
-(* FILL IN HERE *) Admitted.
+(* Note: If we use a regular [Lemma] statement here, the only thing we can
+   induct on is [t], which leaves us with an induction hypthesis that is too
+   weak, forcing us to prove the following:
 
-Lemma subst_same : forall t y, aeq (subst (n_var y) y t)  t.
-Proof.
-  intros.
-  apply subst_same_aux with (n := size t). auto.
+     forall y, aeq (subst (n_var y) y t) t -> forall y, aeq (subst (n_var y) y
+     (swap x x0 t)) (swap x x0 t)
+
+   However, since we know that [swap x x0 t] is structurally the same size as
+   [t], we don't care about swap here, and should be able to recurse directly.
+   This is what the fuel-based version does, since the induction on [n] leaves
+   [t] variable in the induction hypothesis. We can achieve the exact same
+   hypothesis here by recursing on the lemma statement. To do this, however,
+   we need to express that the recursive structure is over [size]. In the end,
+   we're pretty much doing precisely what the fuel-based definition did, just
+   confounded in the definition of [subst]. *)
+
+Program Fixpoint subst_same t {measure (size t)} :
+  forall y, aeq (subst (n_var y) y t) t :=
+  match t with
+  | n_var x => _
+  | n_abs x t => _
+  | n_app t1 t2 => _
+  end.
+Next Obligation.
+  rewrite subst_n_var.
+  default_simp.
+Qed.
+Next Obligation.
+  rewrite subst_n_abs.
+  default_simp.
+    apply aeq_refl.
+  destruct (x0 == x).
+    subst.
+    apply aeq_abs_same.
+    rewrite swap_id.
+    apply subst_same.
+    omega.
+  apply aeq_abs_diff; auto.
+  apply subst_same.
+  rewrite swap_size_eq.
+  omega.
+Qed.
+Next Obligation.
+  rewrite subst_n_app.
+  apply aeq_app.
+    apply subst_same; simpl; omega.
+  apply subst_same; simpl; omega.
 Qed.
 
-
-Lemma subst_fresh_eq_aux : forall n, forall (x : atom) t u, size t <= n ->
-  x `notin` fv_nom t -> aeq (subst u x t) t.
-Proof. (* FILL IN HERE *) Admitted.
-
-Lemma subst_fresh_eq : forall (x : atom) t u,  x `notin` fv_nom t -> aeq (subst u x t) t.
-Proof.
-  intros. apply subst_fresh_eq_aux with (n := size t). omega. auto.
+Program Fixpoint subst_fresh_eq x t {measure (size t)} :
+  forall u, x `notin` fv_nom t -> aeq (subst u x t) t :=
+  match t with
+  | n_var x0 => _
+  | n_abs x0 t => _
+  | n_app t1 t2 => _
+  end.
+Next Obligation.
+  rewrite subst_n_var.
+    default_simp.
+  fsetdec.
 Qed.
-
-
-
+Next Obligation.
+  simpl in H.
+  rewrite subst_n_abs.
+  default_simp.
+    apply aeq_refl.
+  destruct (x1 == x0).
+    subst.
+    rewrite swap_id.
+    apply aeq_abs_same.
+    apply subst_fresh_eq; fsetdec.
+  apply aeq_abs_diff; auto.
+  apply subst_fresh_eq; simpl.
+    rewrite swap_size_eq; omega.
+  replace x with (swap_var x0 x1 x).
+    apply notin_fv_nom_equivariance.
+    fsetdec.
+  assert (x <> x1) by fsetdec.
+  swapped.
+Qed.
+Next Obligation.
+  simpl in H.
+  rewrite subst_n_app.
+  apply aeq_app.
+    apply subst_fresh_eq; simpl.
+      omega.
+    fsetdec.
+  apply subst_fresh_eq; simpl.
+    omega.
+  fsetdec.
+Qed.
