@@ -169,12 +169,22 @@ Hint Resolve apply_heap_lc : lngen.
     [lngen] hint database so that the proof for [decode_lc] goes
     through. *)
 
-(* FILL IN HERE *)
+Lemma apply_stack_lc : forall h s e,
+    lc_exp e -> lc_exp (apply_stack h s e).
+Proof.
+  induction s; default_simp.
+  destruct a; simpl.
+  apply IHs.
+  constructor; auto.
+  apply apply_heap_lc.
+  apply nom_to_exp_lc.
+Qed.
+Hint Resolve apply_stack_lc : lngen.
 
 Lemma decode_lc : forall c, lc_exp (decode c).
 Proof.
   intros [[h e] s]; default_simp.
-  (* FILL IN HERE *) Admitted.
+Qed.
 
 (***********************************************************************)
 (** ** Properties of apply_heap *)
@@ -212,7 +222,8 @@ Lemma apply_heap_open : forall h e e0,
     apply_heap h (open e e0)  =
        open (apply_heap h e) (apply_heap h e0).
 Proof.
-(* FILL IN HERE *) Admitted.
+  alist induction h; default_simp.
+Qed.
 
 Hint Rewrite apply_heap_open : lngen.
 
@@ -277,7 +288,11 @@ Lemma close_exp_wrt_exp_freshen : forall x y e,
     close_exp_wrt_exp x e =
     close_exp_wrt_exp y ([x ~> var_f y] e).
 Proof.
-(* FILL IN HERE *) Admitted.
+  intros.
+  unfold close_exp_wrt_exp.
+  generalize 0.
+  induction e; default_simp.
+Qed.
 
 (** One difficulty of [swap_spec] is that we need to use the induction
     not on direct subterms, but on those that have had a swapping applied
@@ -384,11 +399,35 @@ Qed.
 
 Lemma aeq_nom_to_exp : forall n1 n2, aeq n1 n2 -> nom_to_exp n1 = nom_to_exp n2.
 Proof.
-  (* FILL IN HERE *) Admitted.
+  induction 1; default_simp.
+  - congruence.
+  - rewrite IHaeq.
+    assert (x `notin` fv_exp (nom_to_exp t2))
+      by now rewrite <- fv_nom_fv_exp_eq.
+    rewrite <- swap_spec; default_simp.
+    rewrite <- close_exp_wrt_exp_freshen; auto.
+Qed.
 
 Lemma nom_to_exp_eq_aeq : forall n1 n2, nom_to_exp n1 = nom_to_exp n2 -> aeq n1 n2.
 Proof.
-  (* FILL IN HERE *) Admitted.
+  induction n1, n2; default_simp.
+  destruct (x == x0).
+    subst; eauto with lngen.
+  assert (x `notin` fv_exp (nom_to_exp n2)).
+    (* jww (2017-07-23): I would not have guessed these next two tactics. *)
+    intro.
+    assert (x `in` fv_exp (nom_to_exp (n_abs x0 n2))).
+      simpl; autorewrite with lngen; fsetdec.
+    simpl in H1.
+    rewrite <- H0 in H1.
+    autorewrite with lngen in H1.
+    fsetdec.
+  apply aeq_abs_diff, IHn1; clear IHn1; auto.
+    now rewrite fv_nom_fv_exp_eq.
+  rewrite <- swap_spec; default_simp.
+  rewrite subst_exp_spec, <- H0.
+  now rewrite open_exp_wrt_exp_close_exp_wrt_exp.
+Qed.
 
 (***********************************************************************)
 (** * Scoped configurations                                            *)
@@ -438,8 +477,6 @@ Inductive scoped_heap (D : atoms) : heap -> Prop :=
 
     State a lemma about the scoping of expressions that appear in the heap and
     use it to finish the [apply_heap_get] lemma below.  *)
-
-(* FILL IN HERE *)
 
 Lemma apply_heap_get :  forall h D x e,
     scoped_heap D h ->
