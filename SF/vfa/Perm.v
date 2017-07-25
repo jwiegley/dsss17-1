@@ -527,9 +527,16 @@ Check app_assoc.
 Example permut_example: forall (a b: list nat),
   Permutation (5::6::a++b) ((5::b)++(6::a++[])).
 Proof.
- (* After you cancel the [5], then bring the [6] to the front... *)
-(* FILL IN HERE *) Admitted.
-(** [] *)
+  intros.
+  rewrite app_comm_cons; simpl.
+  apply perm_skip.
+  rewrite Permutation_app_comm.
+  symmetry.
+  rewrite Permutation_app_comm.
+  apply perm_skip.
+  rewrite app_nil_r.
+  apply Permutation_app_comm.
+Qed.
 
 (** **** Exercise: 1 star (not_a_permutation)  *)
 (** Prove that [[1;1]] is not a permutation of [[1;2]].
@@ -541,8 +548,11 @@ Check Permutation_length_1_inv.
 Example not_a_permutation:
   ~ Permutation [1;1] [1;2].
 Proof.
-(* FILL IN HERE *) Admitted.
-(** [] *)
+  intros ?.
+  apply Permutation_cons_inv in H.
+  apply Permutation_length_1_inv in H.
+  discriminate.
+Qed.
 
 (** Back to [maybe_swap].  We prove that it doesn't lose or gain
    any elements, only reorders them. *)
@@ -612,8 +622,14 @@ End Exploration1.
 Theorem Forall_perm: forall {A} (f: A -> Prop) al bl,
   Permutation al bl ->
   Forall f al -> Forall f bl.
-Proof. 
-(* FILL IN HERE *) Admitted.
-(** [] *)
+Proof.
+  intros.
+  generalize dependent al.
+  generalize dependent bl.
+  induction 1; simpl; auto; intros;
+  inversion H0; subst; intuition.
+  inversion H3.
+  constructor; auto.
+Qed.
 
 (** $Date: 2017-05-18 12:44:19 -0400 (Thu, 18 May 2017) $ *)
