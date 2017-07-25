@@ -133,7 +133,10 @@ Fixpoint get_fresh_atoms n l :=
 (** Write a [Gen] instance for [Atom.t], using the [elements]
     combinator and [get_fresh_atoms].  *)
 
-(* FILL IN HERE *)   
+Program Instance genAtom : Gen Atom.t := {
+  arbitrary := n <- arbitrary ;;
+               elements (Atom.fresh []) (get_fresh_atoms n [])
+}.
 
 (* ================================================================= *)
 (** ** Types *)
